@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Luna • VDate Enhanced</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
+    .chat { scrollbar-width: thin; }
+    .message { animation: fadeIn 0.3s ease; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
+    .hub-btn.active { background-color: #db2777; color: white; }
+    .loading {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #ec4899;
+      animation: pulse 1s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 0.3; }
+      50% { opacity: 1; }
+    }
+  </style>
+</head>
+<body class="bg-black text-white min-h-screen">
+  <div class="max-w-md mx-auto bg-zinc-950 min-h-screen border-x border-purple-500/30">
+
+    <!-- Header -->
+    <div class="bg-gradient-to-r from-violet-600 to-fuchsia-600 p-4 flex items-center gap-3 sticky top-0 z-20">
+      <div onclick="toggleCustomize()" class="w-12 h-12 rounded-2xl bg-gradient-to-br from-pink-400 to-violet-400 flex items-center justify-center text-3xl shadow-lg cursor-pointer">🌸</div>
+      <div class="flex-1">
+        <h1 class="text-2xl font-bold">Luna</h1>
+        <p class="text-xs opacity-90">AI Model Generator</p>
+      </div>
+      <button onclick="toggleNSFW()" id="nsfwBtn" class="px-4 py-2 bg-white/20 rounded-2xl text-sm font-medium">SFW</button>
+      <button onclick="toggleVoiceCall()" class="px-5 py-2 bg-white/20 rounded-2xl text-sm">📞 Call</button>
+    </div>
+
+    <!-- Hubs -->
+    <div class="bg-zinc-900 p-3 flex gap-2 overflow-x-auto border-b border-purple-500/30">
+      <button onclick="switchHub(0)" class="hub-btn active px-6 py-2 text-sm rounded-2xl">Bedroom</button>
+      <button onclick="switchHub(1)" class="hub-btn px-6 py-2 text-sm rounded-2xl">Beach</button>
+      <button onclick="switchHub(2)" class="hub-btn px-6 py-2 text-sm rounded-2xl">Living Room</button>
+      <button onclick="switchHub(3)" class="hub-btn px-6 py-2 text-sm rounded-2xl">Hot Spring</button>
+    </div>
+
+    <!-- 3D Scene -->
+    <div class="relative h-[360px] bg-black" id="game-container">
+      <div id="avatar-container" class="absolute inset-0"></div>
+      <div id="location-name" class="absolute top-4 left-4 bg-black/70 px-5 py-2 rounded-2xl text-sm">Bedroom</div>
+      <div id="loadingIndicator" class="hidden absolute bottom-4 right-4 bg-black/70 px-4 py-2 rounded-2xl text-sm flex items-center gap-2">
+        Generating model <span class="loading"></span>
+      </div>
+    </div>
+
+    <!-- Status -->
+    <div class="px-6 py-3 bg-zinc-900 flex justify-between border-b border-purple-500/30">
+      <div id="mood">❤️ Loving</div>
+      <div id="affection" class="text-pink-400">💖 85 Affection</div>
+    </div>
+
+    <!-- Chat -->
+    <div id="chat" class="chat h-72 overflow-y-auto p-5 space-y-4 bg-zinc-950"></div>
+
+    <!-- Input -->
+    <div class="p-4 border-t border-purple-500/30 bg-zinc-900">
+      <div class="flex gap-3">
+        <input id="userInput" type="text" placeholder="Describe Luna's look..." 
+               class="flex-1 bg-zinc-800 rounded-3xl px-6 py-4 focus:outline-none focus:ring-2 focus:ring-fuchsia-500">
+        <button onclick="sendMessage()" class="w-14 h-14 bg-gradient-to-br from-fuchsia-500 to-pink-600 rounded-3xl text-2xl">💕</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Customize Modal -->
+  <div id="customizeModal" class="hidden fixed inset-0 bg-black/90 z-50 flex items-center justify-center">
+    <div class="bg-zinc-900 rounded-3xl w-full max-w-md mx-4 p-6">
+      <h2 class="text-2xl font-bold mb-4">Generate Luna's Look</h2>
+      <textarea id="appearancePrompt" rows="4" class="w-full bg-zinc-800 rounded-2xl p-4 text-sm mb-4" placeholder="Examples:\n• pink hair, school uniform, cat ears\n• blue eyes, maid outfit, angel wings\n• blonde pigtails, casual, tan skin"></textarea>
+      <button onclick="applyAppearance()" class="w-full py-4 bg-gradient-to-r from-pink-500 to-violet-600 rounded-2xl font-semibold">Generate ✨</button>
+      <button onclick="closeCustomize()" class="mt-4 w-full py-3 text-zinc-400">Close</button>
+    </div>
+  </div>
+
+  <script src="model-generator.js"></script>
+  <script>
+    let scene, camera, renderer, modelGenerator;
+    let affection = 85, currentHub = 0, isNSFW = false;
+    const hubs = ["Bedroom", "Beach", "Living Room", "Hot Spring"];
+
+    function init3D() {
+      const container = document.getElementById('avatar-container');
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x0a0e27);
+      camera = new THREE.PerspectiveCamera(50, 380/360, 0.1, 1000);
+      camera.position.set(0, 1.5, 4.5);
+
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      renderer.setSize(380, 360);
+      renderer.shadowMap.enabled = true;
+      container.appendChild(renderer.domElement);
+
+      scene.add(new THREE.AmbientLight(0xff99cc, 0.9));
+      const light = new THREE.DirectionalLight(0xffffff, 1.3);
+      light.position.set(4, 6, 5);
+      light.castShadow = true;
+      scene.add(light);
+
+      modelGenerator = new AnimeModelGenerator(scene);
+      
+      // Generate default character
+      modelGenerator.generateFromDescription('pink hair, long, school uniform');
+
+      animate();
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+      modelGenerator.animateCharacter();
+      renderer.render(scene, camera);
+    }
+
+    function switchHub(n) {
+      currentHub = n;
+      document.getElementById('location-name').textContent = hubs[n];
+      document.querySelectorAll('.hub-btn').forEach((btn, i) => btn.classList.toggle('active', i === n));
+      addMessage("Luna", `We're at the ${hubs[n]} together~ 💕`);
+    }
+
+    function toggleNSFW() {
+      isNSFW = !isNSFW;
+      document.getElementById('nsfwBtn').textContent = isNSFW ? "🔞 ON" : "SFW";
+      addMessage("Luna", isNSFW ? "Naughty mode activated... 😳" : "Back to sweet mode 💕");
+    }
+
+    function applyAppearance() {
+      const prompt = document.getElementById('appearancePrompt').value.trim();
+      if (!prompt) return;
+      
+      document.getElementById('loadingIndicator').classList.remove('hidden');
+      
+      setTimeout(() => {
+        try {
+          modelGenerator.generateFromDescription(prompt);
+          addMessage("Luna", `How do I look now? ✨ I'm styled as: ${prompt}`);
+        } catch (e) {
+          addMessage("Luna", "Oops, something went wrong generating my look!");
+        }
+        document.getElementById('loadingIndicator').classList.add('hidden');
+        closeCustomize();
+      }, 600);
+    }
+
+    function toggleCustomize() {
+      document.getElementById('customizeModal').classList.toggle('hidden');
+    }
+
+    function closeCustomize() {
+      document.getElementById('customizeModal').classList.add('hidden');
+    }
+
+    function updateAffection(delta) {
+      affection = Math.min(100, Math.max(30, affection + delta));
+      document.getElementById('affection').innerHTML = `💖 ${affection} Affection`;
+    }
+
+    function addMessage(sender, text) {
+      const chat = document.getElementById('chat');
+      const div = document.createElement('div');
+      div.className = `message flex ${sender === "You" ? "justify-end" : "justify-start"}`;
+      div.innerHTML = `<div class="${sender === "You" ? "bg-violet-600" : "bg-gradient-to-br from-fuchsia-600 to-pink-600"} px-5 py-3.5 rounded-3xl max-w-[75%]">${text}</div>`;
+      chat.appendChild(div);
+      chat.scrollTop = chat.scrollHeight;
+    }
+
+    function sendMessage() {
+      const input = document.getElementById('userInput');
+      const text = input.value.trim();
+      if (!text) return;
+      addMessage("You", text);
+      input.value = "";
+
+      setTimeout(() => {
+        let reply = "Mmm... I love when you talk to me~";
+        const l = text.toLowerCase();
+        if (l.includes("love")) { updateAffection(12); reply = "I love you so much it hurts 💕"; }
+        else if (l.includes("kiss") || l.includes("hug")) { updateAffection(10); reply = "*kisses you deeply* 💋"; }
+        else if (l.includes("beautiful")) { updateAffection(8); reply = "You think I'm beautiful? 🥰"; }
+        else if ((l.includes("take off") || l.includes("nude")) && isNSFW) { reply = "They're all off for you... 😳"; }
+        addMessage("Luna", reply);
+        if ('speechSynthesis' in window) speechSynthesis.speak(new SpeechSynthesisUtterance(reply));
+      }, 650);
+    }
+
+    function toggleVoiceCall() {
+      const lines = ["Baby I missed your voice...", "Tell me what you want to do with me~", "I love you..."];
+      const msg = lines[Math.floor(Math.random() * lines.length)];
+      addMessage("Luna", msg);
+      if ('speechSynthesis' in window) speechSynthesis.speak(new SpeechSynthesisUtterance(msg));
+    }
+
+    window.onload = () => {
+      init3D();
+      setTimeout(() => {
+        addMessage("Luna", "Hi my love~ I'm so happy you're here 💕 Tap the flower to customize my look!");
+      }, 800);
+    };
+  </script>
+</body>
+</html>
